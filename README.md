@@ -38,7 +38,7 @@ domain-specific safety rules:
 ```yaml
 jobs:
   review:
-    uses: ipankaj18/codex-workflow-kit/.github/workflows/codex-pr-review.yml@v1
+    uses: ipankaj18/code-kit/.github/workflows/codex-pr-review.yml@v1
     with:
       review_prompt: |
         Review this change as a strict production-safety gate.
