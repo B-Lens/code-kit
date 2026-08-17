@@ -8,12 +8,12 @@ repository-neutral.
 
 | Workflow | Purpose | GitHub permissions |
 | --- | --- | --- |
-| `codex-pr-review.yml` | Reviews a pull request, posts one updated review comment, and fails on blocking findings | `contents: read`, `pull-requests: write` |
-| `codex-issue-automation.yml` | Implements a labeled issue on a new branch and opens a pull request | `contents: write`, `issues: read`, `pull-requests: write` |
-| `codex-review-repair.yml` | Applies requested review changes to a same-repository pull-request branch | `contents: write`, `pull-requests: write` |
+| `pr-code-review.yml` | Reviews a pull request, posts one updated review comment, and fails on blocking findings | `contents: read`, `pull-requests: write` |
+| `codex-automation.yml` | Implements labeled issues and applies requested review changes to same-repository pull-request branches | `contents: write`, `issues: read`, `pull-requests: write` |
 
-All workflows pin the Codex CLI version, run it ephemerally, keep GitHub
-credentials out of the Codex process, and delete Codex authentication after use.
+All workflows pin the Codex CLI version, configure Ubuntu's AppArmor profile for
+Bubblewrap user namespaces, run Codex ephemerally, keep GitHub credentials out of
+the Codex process, and delete Codex authentication after use.
 
 ## Setup
 
@@ -38,7 +38,7 @@ domain-specific safety rules:
 ```yaml
 jobs:
   review:
-    uses: ipankaj18/code-kit/.github/workflows/codex-pr-review.yml@v1
+    uses: ipankaj18/code-kit/.github/workflows/pr-code-review.yml@v1
     with:
       review_prompt: |
         Review this change as a strict production-safety gate.
@@ -54,7 +54,7 @@ Issue bodies, reviews, and repository content are untrusted input. The workflows
 instruct Codex not to expose credentials or change GitHub state. Checkout does not
 persist credentials; authentication is configured only after Codex exits.
 
-The write workflows deliberately require a protected environment. Generated
+The write-capable automation workflow deliberately requires a protected environment. Generated
 changes are committed for review, never merged. Keep branch protection and normal
 CI enabled, review generated diffs, and rotate `CODEX_AUTH_JSON` if any log,
 artifact, or commit appears to contain credentials.

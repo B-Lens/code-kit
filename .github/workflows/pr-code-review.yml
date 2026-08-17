@@ -1,4 +1,4 @@
-name: Reusable Codex PR Review
+name: Reusable PR Code Review
 
 on:
   workflow_call:
@@ -53,13 +53,19 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install Codex runtime
-        env:
-          CODEX_VERSION: ${{ inputs.codex_version }}
+      - name: Install Codex sandbox prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install --yes bubblewrap
-          npm install --global "@openai/codex@$CODEX_VERSION"
+          sudo apt-get install --yes bubblewrap apparmor-profiles apparmor-utils
+          sudo install -m 0644 \
+            /usr/share/apparmor/extra-profiles/bwrap-userns-restrict \
+            /etc/apparmor.d/bwrap-userns-restrict
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
+
+      - name: Install pinned Codex CLI
+        env:
+          CODEX_VERSION: ${{ inputs.codex_version }}
+        run: npm install --global "@openai/codex@$CODEX_VERSION"
 
       - name: Install Codex authentication
         env:
@@ -224,4 +230,3 @@ jobs:
       - name: Remove Codex authentication
         if: always()
         run: rm -f "$CODEX_HOME/auth.json"
-
