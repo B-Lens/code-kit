@@ -13,9 +13,9 @@ jobs:
   review:
     uses: ipankaj18/code-kit/.github/workflows/pr-code-review.yml@v1
     with:
-      review_engine: antigravity
       review_prompt: |
         Review for concrete correctness, security, and data-integrity defects.
         Ignore style and pre-existing issues outside the pull-request diff.
     secrets:
+      CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
       ANTIGRAVITY_OAUTH_TOKEN: ${{ secrets.ANTIGRAVITY_OAUTH_TOKEN }}

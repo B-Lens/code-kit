@@ -1,0 +1,324 @@
+name: Reusable PR Review Engine
+
+on:
+  workflow_call:
+    inputs:
+      review_engine:
+        description: Review CLI to use (codex or antigravity)
+        required: false
+        type: string
+        default: codex
+      review_prompt:
+        description: Repository-specific review policy appended to the base prompt
+        required: false
+        type: string
+        default: Review for concrete correctness, security, and data-integrity defects. Ignore style and pre-existing issues outside the diff.
+      codex_version:
+        description: Pinned @openai/codex package version
+        required: false
+        type: string
+        default: "0.147.0"
+      antigravity_version:
+        description: Pinned Google Antigravity CLI release version
+        required: false
+        type: string
+        default: "1.1.13"
+      runner:
+        description: GitHub-hosted runner label
+        required: false
+        type: string
+        default: ubuntu-24.04
+    secrets:
+      CODEX_AUTH_JSON:
+        description: Complete Codex CLI auth.json content
+        required: false
+      ANTIGRAVITY_OAUTH_TOKEN:
+        description: Complete Antigravity CLI antigravity-oauth-token content
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Production safety review
+    if: github.event.pull_request.draft == false
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    concurrency:
+      group: ${{ inputs.review_engine }}-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Initialize Codex home
+        if: inputs.review_engine == 'codex'
+        run: echo "CODEX_HOME=$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
+
+      - name: Validate review engine
+        env:
+          REVIEW_ENGINE: ${{ inputs.review_engine }}
+        run: |
+          case "$REVIEW_ENGINE" in
+            codex|antigravity) ;;
+            *) echo "Unsupported review_engine: $REVIEW_ENGINE" >&2; exit 1 ;;
+          esac
+
+      - name: Checkout pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Codex sandbox prerequisites
+        if: inputs.review_engine == 'codex'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap apparmor-profiles apparmor-utils
+          sudo install -m 0644 \
+            /usr/share/apparmor/extra-profiles/bwrap-userns-restrict \
+            /etc/apparmor.d/bwrap-userns-restrict
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
+
+      - name: Install pinned Codex CLI
+        if: inputs.review_engine == 'codex'
+        env:
+          CODEX_VERSION: ${{ inputs.codex_version }}
+        run: npm install --global "@openai/codex@$CODEX_VERSION"
+
+      - name: Install Codex authentication
+        if: inputs.review_engine == 'codex'
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: |
+          test -n "$CODEX_AUTH_JSON"
+          mkdir -p "$CODEX_HOME"
+          umask 077
+          printf '%s' "$CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"
+          python3 -m json.tool "$CODEX_HOME/auth.json" >/dev/null
+
+      - name: Install pinned Antigravity CLI
+        if: inputs.review_engine == 'antigravity'
+        env:
+          ANTIGRAVITY_VERSION: ${{ inputs.antigravity_version }}
+        run: |
+          case "$(uname -m)" in
+            x86_64) arch=x64 ;;
+            aarch64|arm64) arch=arm64 ;;
+            *) echo "Unsupported runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          archive="$RUNNER_TEMP/antigravity.tar.gz"
+          curl --fail --location --silent --show-error \
+            "https://github.com/google-antigravity/antigravity-cli/releases/download/$ANTIGRAVITY_VERSION/agy_cli_linux_$arch.tar.gz" \
+            --output "$archive"
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          install -m 0755 "$RUNNER_TEMP/antigravity" "$RUNNER_TEMP/agy"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Install Antigravity authentication
+        if: inputs.review_engine == 'antigravity'
+        env:
+          ANTIGRAVITY_OAUTH_TOKEN: ${{ secrets.ANTIGRAVITY_OAUTH_TOKEN }}
+        run: |
+          test -n "$ANTIGRAVITY_OAUTH_TOKEN"
+          token_dir="$HOME/.gemini/antigravity-cli"
+          mkdir -p "$token_dir"
+          umask 077
+          printf '%s' "$ANTIGRAVITY_OAUTH_TOKEN" > "$token_dir/antigravity-oauth-token"
+
+      - name: Create review contract
+        env:
+          REVIEW_PROMPT: ${{ inputs.review_prompt }}
+        run: |
+          printf '%s\n' "$REVIEW_PROMPT" > "$RUNNER_TEMP/review-policy.md"
+          python3 - <<'PY'
+          import json
+          import os
+
+          schema = {
+              "type": "object",
+              "additionalProperties": False,
+              "required": ["verdict", "summary", "findings"],
+              "properties": {
+                  "verdict": {"type": "string", "enum": ["PASS", "FAIL"]},
+                  "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
+                  "findings": {
+                      "type": "array",
+                      "maxItems": 25,
+                      "items": {
+                          "type": "object",
+                          "additionalProperties": False,
+                          "required": ["priority", "path", "line", "title", "body"],
+                          "properties": {
+                              "priority": {"type": "string", "enum": ["P0", "P1", "P2"]},
+                              "path": {"type": "string", "minLength": 1, "maxLength": 500},
+                              "line": {"type": "integer", "minimum": 1},
+                              "title": {"type": "string", "minLength": 1, "maxLength": 300},
+                              "body": {"type": "string", "minLength": 1, "maxLength": 4000},
+                          },
+                      },
+                  },
+              },
+          }
+          with open(os.path.join(os.environ["RUNNER_TEMP"], "review-schema.json"), "w", encoding="utf-8") as handle:
+              json.dump(schema, handle)
+          PY
+
+      - name: Run strict Codex review
+        if: inputs.review_engine == 'codex'
+        id: codex
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set +e
+          {
+            printf 'Review this pull request as a strict merge gate. Compare HEAD with base commit `%s`.\n\n' "$BASE_SHA"
+            cat "$RUNNER_TEMP/review-policy.md"
+            printf '\n\nUse only changed-file line numbers. Report only findings proven by the diff.\n'
+            printf 'PASS requires an empty findings array; FAIL requires at least one finding. Return only schema-compliant JSON.\n'
+          } | codex exec \
+              --sandbox read-only \
+              --ephemeral \
+              --ignore-user-config \
+              --output-schema "$RUNNER_TEMP/review-schema.json" \
+              --output-last-message "$RUNNER_TEMP/codex-review.json" \
+              - > "$RUNNER_TEMP/codex-run.log" 2>&1
+          status=$?
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Run strict Antigravity review
+        if: inputs.review_engine == 'antigravity'
+        id: antigravity
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set +e
+          prompt="$({
+            printf 'Review this pull request as a strict merge gate. Compare HEAD with base commit `%s`.\n\n' "$BASE_SHA"
+            cat "$RUNNER_TEMP/review-policy.md"
+            printf '\n\nUse only changed-file line numbers. Report only findings proven by the diff.\n'
+            printf 'PASS requires an empty findings array; FAIL requires at least one finding. Return only schema-compliant JSON.\n'
+          })"
+          agy --print "$prompt" \
+            --mode plan \
+            --sandbox \
+            --output-format text \
+            --json-schema "$RUNNER_TEMP/review-schema.json" \
+            --print-timeout 20m \
+            > "$RUNNER_TEMP/antigravity-review.json" \
+            2> "$RUNNER_TEMP/antigravity-run.log"
+          status=$?
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Validate and render review
+        id: result
+        env:
+          REVIEW_ENGINE: ${{ inputs.review_engine }}
+          REVIEW_EXIT_CODE: ${{ inputs.review_engine == 'codex' && steps.codex.outputs.exit_code || steps.antigravity.outputs.exit_code }}
+        run: |
+          test "$REVIEW_EXIT_CODE" = "0"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import PurePosixPath
+
+          engine = os.environ["REVIEW_ENGINE"]
+          source = os.path.join(os.environ["RUNNER_TEMP"], f"{engine}-review.json")
+          target = os.path.join(os.environ["RUNNER_TEMP"], "pr-review.md")
+          with open(source, encoding="utf-8") as handle:
+              data = json.load(handle)
+          if set(data) != {"verdict", "summary", "findings"}:
+              raise ValueError("review has unexpected or missing keys")
+          if data["verdict"] not in {"PASS", "FAIL"}:
+              raise ValueError("invalid verdict")
+          if not isinstance(data["summary"], str) or not data["summary"].strip():
+              raise ValueError("summary must be non-empty")
+          if not isinstance(data["findings"], list):
+              raise ValueError("findings must be an array")
+          if (data["verdict"] == "PASS") != (len(data["findings"]) == 0):
+              raise ValueError("verdict and findings disagree")
+          name = "Codex" if engine == "codex" else "Antigravity"
+          lines = [f"## {name} pull-request review", "", ("✅" if data["verdict"] == "PASS" else "❌") + f" **Verdict: {data['verdict']}**", "", data["summary"].strip()]
+          required = {"priority", "path", "line", "title", "body"}
+          for item in data["findings"]:
+              if not isinstance(item, dict) or set(item) != required:
+                  raise ValueError("finding has invalid keys")
+              path = PurePosixPath(str(item["path"]))
+              if path.is_absolute() or ".." in path.parts or item["priority"] not in {"P0", "P1", "P2"}:
+                  raise ValueError("finding has unsafe path or priority")
+              if not isinstance(item["line"], int) or item["line"] < 1:
+                  raise ValueError("finding has invalid line")
+              lines += ["", f"### [{item['priority']}] {item['title'].strip()}", "", f"`{item['path']}:{item['line']}`", "", item["body"].strip()]
+          lines += ["", f"_Generated by {name} in an ephemeral read-only GitHub Actions job._", ""]
+          with open(target, "w", encoding="utf-8") as handle:
+              handle.write("\n".join(lines))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"verdict={data['verdict']}\n")
+          PY
+
+      - name: Post review comment
+        uses: actions/github-script@v7
+        env:
+          REVIEW_FILE: ${{ runner.temp }}/pr-review.md
+          REVIEW_ENGINE: ${{ inputs.review_engine }}
+        with:
+          script: |
+            const fs = require("fs");
+            const name = process.env.REVIEW_ENGINE === "codex" ? "Codex" : "Antigravity";
+            const marker = `## ${name} pull-request review`;
+            const body = fs.readFileSync(process.env.REVIEW_FILE, "utf8");
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const previous = comments.find((comment) =>
+              comment.user.type === "Bot" && comment.body.includes(marker)
+            );
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: previous.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, body,
+              });
+            }
+
+      - name: Enforce review verdict
+        env:
+          VERDICT: ${{ steps.result.outputs.verdict }}
+        run: test "$VERDICT" = "PASS"
+
+      - name: Upload review diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.review_engine }}-review-${{ github.event.pull_request.number }}
+          path: |
+            ${{ runner.temp }}/codex-review.json
+            ${{ runner.temp }}/codex-run.log
+            ${{ runner.temp }}/antigravity-review.json
+            ${{ runner.temp }}/antigravity-run.log
+            ${{ runner.temp }}/pr-review.md
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Remove Codex authentication
+        if: always() && inputs.review_engine == 'codex'
+        run: rm -f "$CODEX_HOME/auth.json"
+
+      - name: Remove Antigravity authentication
+        if: always() && inputs.review_engine == 'antigravity'
+        run: rm -f "$HOME/.gemini/antigravity-cli/antigravity-oauth-token"
