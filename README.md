@@ -1,6 +1,6 @@
 # Common Workflows
 
-Reusable GitHub Actions for Codex-assisted pull-request review and repository
+Reusable GitHub Actions for Codex- or Antigravity-assisted pull-request review and repository
 automation. These workflows were extracted from the Orbit project and made
 repository-neutral.
 
@@ -11,14 +11,18 @@ repository-neutral.
 | `pr-code-review.yml` | Reviews a pull request, posts one updated review comment, and fails on blocking findings | `contents: read`, `pull-requests: write` |
 | `codex-automation.yml` | Implements labeled issues and applies requested review changes to same-repository pull-request branches | `contents: write`, `issues: read`, `pull-requests: write` |
 
-All workflows pin the Codex CLI version, configure Ubuntu's AppArmor profile for
-Bubblewrap user namespaces, run Codex ephemerally, keep GitHub credentials out of
-the Codex process, and delete Codex authentication after use.
+The review workflow always runs separate Codex and Google Antigravity jobs. Both
+CLIs are version-pinned, run in read-only modes, keep GitHub credentials out of
+the AI processes, and delete AI authentication after use.
 
 ## Setup
 
-1. Add an Actions secret named `CODEX_AUTH_JSON` to the consuming repository.
-   Its value is the complete, unencoded content of a Codex CLI `auth.json` file.
+1. Add both Actions secrets used by the review jobs:
+   - `CODEX_AUTH_JSON`, containing the complete, unencoded Codex CLI `auth.json`
+     file.
+   - `ANTIGRAVITY_OAUTH_TOKEN`, containing the complete contents of the token
+     stored locally by default at
+     `~/.gemini/antigravity-cli/antigravity-oauth-token`.
 2. For write-capable automation, create a protected GitHub environment named
    `Codex-Automation` and require approval from a trusted reviewer.
 3. Copy the desired caller files from [`examples/`](examples/) into the consuming
@@ -46,13 +50,15 @@ jobs:
         Ignore style and pre-existing issues outside the diff.
     secrets:
       CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+      ANTIGRAVITY_OAUTH_TOKEN: ${{ secrets.ANTIGRAVITY_OAUTH_TOKEN }}
 ```
 
 ## Trust and security model
 
 Issue bodies, reviews, and repository content are untrusted input. The workflows
-instruct Codex not to expose credentials or change GitHub state. Checkout does not
-persist credentials; authentication is configured only after Codex exits.
+instruct both AI reviewers not to expose credentials or change GitHub state.
+Checkout does not persist credentials; authentication is removed after each
+reviewer exits.
 
 The write-capable automation workflow deliberately requires a protected environment. Generated
 changes are committed for review, never merged. Keep branch protection and normal
