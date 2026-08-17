@@ -38,7 +38,7 @@ domain-specific safety rules:
 ```yaml
 jobs:
   review:
-    uses: ipankaj18/common-workflows/.github/workflows/codex-pr-review.yml@v1
+    uses: ipankaj18/codex-workflow-kit/.github/workflows/codex-pr-review.yml@v1
     with:
       review_prompt: |
         Review this change as a strict production-safety gate.
@@ -68,4 +68,3 @@ cannot safely push to them.
 Breaking changes are released under a new major tag. Consumers should use a major
 tag such as `v1` for updates within a compatible line, or a full commit SHA for
 maximum supply-chain control.
-

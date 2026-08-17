@@ -11,11 +11,10 @@ permissions:
 
 jobs:
   review:
-    uses: ipankaj18/common-workflows/.github/workflows/codex-pr-review.yml@v1
+    uses: ipankaj18/codex-workflow-kit/.github/workflows/codex-pr-review.yml@v1
     with:
       review_prompt: |
         Review for concrete correctness, security, and data-integrity defects.
         Ignore style and pre-existing issues outside the pull-request diff.
     secrets:
       CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-

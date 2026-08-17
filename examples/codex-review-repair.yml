@@ -10,9 +10,8 @@ permissions:
 
 jobs:
   repair:
-    uses: ipankaj18/common-workflows/.github/workflows/codex-review-repair.yml@v1
+    uses: ipankaj18/codex-workflow-kit/.github/workflows/codex-review-repair.yml@v1
     with:
       extra_instructions: Preserve this repository's documented safety boundaries.
     secrets:
       CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-
