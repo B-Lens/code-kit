@@ -1,0 +1,20 @@
+name: Codex Issue Automation
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: write
+
+jobs:
+  implement:
+    uses: ipankaj18/common-workflows/.github/workflows/codex-issue-automation.yml@v1
+    with:
+      reviewer: ipankaj18
+      extra_instructions: Preserve this repository's documented safety boundaries.
+    secrets:
+      CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+
