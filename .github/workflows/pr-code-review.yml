@@ -30,7 +30,7 @@ on:
         required: true
       ANTIGRAVITY_OAUTH_TOKEN:
         description: Complete Antigravity CLI antigravity-oauth-token content
-        required: true
+        required: false
 
 permissions:
   contents: read
@@ -283,11 +283,17 @@ jobs:
         env:
           ANTIGRAVITY_OAUTH_TOKEN: ${{ secrets.ANTIGRAVITY_OAUTH_TOKEN }}
         run: |
-          test -n "$ANTIGRAVITY_OAUTH_TOKEN"
           token_dir="$HOME/.gemini/antigravity-cli"
-          mkdir -p "$token_dir"
-          umask 077
-          printf '%s' "$ANTIGRAVITY_OAUTH_TOKEN" > "$token_dir/antigravity-oauth-token"
+          token_file="$token_dir/antigravity-oauth-token"
+          if test -n "$ANTIGRAVITY_OAUTH_TOKEN"; then
+            mkdir -p "$token_dir"
+            umask 077
+            printf '%s' "$ANTIGRAVITY_OAUTH_TOKEN" > "$token_file"
+            touch "$RUNNER_TEMP/antigravity-token-installed"
+          elif ! test -s "$token_file"; then
+            echo "ANTIGRAVITY_OAUTH_TOKEN is unset and $token_file does not exist" >&2
+            exit 1
+          fi
 
       - name: Create review contract
         env:
@@ -443,4 +449,7 @@ jobs:
 
       - name: Remove Antigravity authentication
         if: always()
-        run: rm -f "$HOME/.gemini/antigravity-cli/antigravity-oauth-token"
+        run: |
+          if test -f "$RUNNER_TEMP/antigravity-token-installed"; then
+            rm -f "$HOME/.gemini/antigravity-cli/antigravity-oauth-token"
+          fi
