@@ -1,6 +1,7 @@
 name: Reusable PR Code Review
 
 on:
+  pull_request: 
   workflow_call:
     inputs:
       review_prompt:
