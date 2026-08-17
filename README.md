@@ -12,8 +12,9 @@ repository-neutral.
 | `codex-issue-automation.yml` | Implements a labeled issue on a new branch and opens a pull request | `contents: write`, `issues: read`, `pull-requests: write` |
 | `codex-review-repair.yml` | Applies requested review changes to a same-repository pull-request branch | `contents: write`, `pull-requests: write` |
 
-All workflows pin the Codex CLI version, run it ephemerally, keep GitHub
-credentials out of the Codex process, and delete Codex authentication after use.
+All workflows pin the Codex CLI version, configure Ubuntu's AppArmor profile for
+Bubblewrap user namespaces, run Codex ephemerally, keep GitHub credentials out of
+the Codex process, and delete Codex authentication after use.
 
 ## Setup
 
