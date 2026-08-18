@@ -40,7 +40,7 @@ jobs:
   codex:
     name: Codex review
     if: github.event.pull_request.draft == false
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
     timeout-minutes: 30
     concurrency:
       group: codex-review-${{ github.repository }}-${{ github.event.pull_request.number }}
@@ -73,7 +73,7 @@ jobs:
 
       - name: Install pinned Codex CLI
         env:
-          CODEX_VERSION: ${{ inputs.codex_version }}
+          CODEX_VERSION: ${{ inputs.codex_version || '0.147.0' }}
         run: npm install --global "@openai/codex@$CODEX_VERSION"
 
       - name: Install Codex authentication
@@ -248,7 +248,7 @@ jobs:
   agy:
     name: Antigravity review
     if: github.event.pull_request.draft == false
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
     timeout-minutes: 30
     concurrency:
       group: agy-review-${{ github.repository }}-${{ github.event.pull_request.number }}
@@ -264,7 +264,7 @@ jobs:
 
       - name: Install pinned Antigravity CLI
         env:
-          ANTIGRAVITY_VERSION: ${{ inputs.antigravity_version }}
+          ANTIGRAVITY_VERSION: ${{ inputs.antigravity_version || '1.1.13' }}
         run: |
           case "$(uname -m)" in
             x86_64) arch=x64 ;;
@@ -373,24 +373,32 @@ jobs:
           with open(source, encoding="utf-8") as handle:
               data = json.load(handle)
           # JSON output wraps the schema-constrained model response in a CLI
-          # envelope. The response can be an object, JSON text, or JSON text in
-          # a Markdown fence despite the requested schema.
+          # envelope. The response can be an object or JSON text with optional
+          # Markdown fencing or explanatory text despite the requested schema.
           if isinstance(data, dict) and "response" in data:
               response = data["response"]
               if isinstance(response, str):
                   response = response.strip()
-                  if response.startswith("```"):
-                      lines = response.splitlines()
-                      if (len(lines) < 3 or lines[0].strip().lower() not in {"```", "```json"}
-                              or lines[-1].strip() != "```"):
-                          raise ValueError("review response has an invalid JSON fence")
-                      response = "\n".join(lines[1:-1]).strip()
                   if not response:
                       raise ValueError("review response is empty")
                   try:
                       data = json.loads(response)
-                  except json.JSONDecodeError as error:
-                      raise ValueError("review response is not valid JSON") from error
+                  except json.JSONDecodeError:
+                      decoder = json.JSONDecoder()
+                      candidates = []
+                      for index, character in enumerate(response):
+                          if character != "{":
+                              continue
+                          try:
+                              candidate, _ = decoder.raw_decode(response, index)
+                          except json.JSONDecodeError:
+                              continue
+                          if (isinstance(candidate, dict)
+                                  and set(candidate) == {"verdict", "summary", "findings"}):
+                              candidates.append(candidate)
+                      if len(candidates) != 1:
+                          raise ValueError("review response must contain exactly one review object")
+                      data = candidates[0]
               elif isinstance(response, dict):
                   data = response
               else:
