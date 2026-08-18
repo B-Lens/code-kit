@@ -348,7 +348,7 @@ jobs:
           agy --print "$prompt" \
             --mode plan \
             --sandbox \
-            --output-format text \
+            --output-format json \
             --json-schema "$RUNNER_TEMP/review-schema.json" \
             --print-timeout 20m \
             > "$RUNNER_TEMP/antigravity-review.json" \
