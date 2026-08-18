@@ -387,6 +387,24 @@ jobs:
             > "$RUNNER_TEMP/antigravity-review.json" \
             2> "$RUNNER_TEMP/antigravity-run.log"
           status=$?
+          if test "$status" = "0"; then
+            REVIEW_FILE="$RUNNER_TEMP/antigravity-review.json" python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          with open(os.environ["REVIEW_FILE"], encoding="utf-8") as handle:
+              result = json.load(handle)
+          if result.get("status") != "SUCCESS":
+              error = result.get("error") or "Antigravity returned an unknown error"
+              print(error, file=sys.stderr)
+              raise SystemExit(1)
+          if not result.get("response"):
+              print("Antigravity completed without a review response", file=sys.stderr)
+              raise SystemExit(1)
+          PY
+            status=$?
+          fi
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
           exit 0
 
