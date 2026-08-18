@@ -40,7 +40,7 @@ jobs:
   codex:
     name: Codex review
     if: github.event.pull_request.draft == false
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
     timeout-minutes: 30
     concurrency:
       group: codex-review-${{ github.repository }}-${{ github.event.pull_request.number }}
@@ -73,7 +73,7 @@ jobs:
 
       - name: Install pinned Codex CLI
         env:
-          CODEX_VERSION: ${{ inputs.codex_version }}
+          CODEX_VERSION: ${{ inputs.codex_version || '0.147.0' }}
         run: npm install --global "@openai/codex@$CODEX_VERSION"
 
       - name: Install Codex authentication
@@ -248,7 +248,7 @@ jobs:
   agy:
     name: Antigravity review
     if: github.event.pull_request.draft == false
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
     timeout-minutes: 30
     concurrency:
       group: agy-review-${{ github.repository }}-${{ github.event.pull_request.number }}
@@ -264,7 +264,7 @@ jobs:
 
       - name: Install pinned Antigravity CLI
         env:
-          ANTIGRAVITY_VERSION: ${{ inputs.antigravity_version }}
+          ANTIGRAVITY_VERSION: ${{ inputs.antigravity_version || '1.1.13' }}
         run: |
           case "$(uname -m)" in
             x86_64) arch=x64 ;;
@@ -285,8 +285,15 @@ jobs:
         run: |
           token_dir="$HOME/.gemini/antigravity-cli"
           token_file="$token_dir/antigravity-oauth-token"
+          settings_file="$token_dir/settings.json"
+          mkdir -p "$token_dir"
+          if test -f "$settings_file"; then
+            cp "$settings_file" "$RUNNER_TEMP/antigravity-settings.json"
+            touch "$RUNNER_TEMP/antigravity-settings-backed-up"
+          else
+            touch "$RUNNER_TEMP/antigravity-settings-created"
+          fi
           if test -n "$ANTIGRAVITY_OAUTH_TOKEN"; then
-            mkdir -p "$token_dir"
             umask 077
             printf '%s' "$ANTIGRAVITY_OAUTH_TOKEN" > "$token_file"
             touch "$RUNNER_TEMP/antigravity-token-installed"
@@ -294,6 +301,21 @@ jobs:
             echo "ANTIGRAVITY_OAUTH_TOKEN is unset and $token_file does not exist" >&2
             exit 1
           fi
+          SETTINGS_FILE="$settings_file" python3 - <<'PY'
+          import json
+          import os
+
+          path = os.environ["SETTINGS_FILE"]
+          try:
+              with open(path, encoding="utf-8") as handle:
+                  settings = json.load(handle)
+          except FileNotFoundError:
+              settings = {}
+          settings["enableTerminalSandbox"] = True
+          settings["toolPermission"] = "proceed-in-sandbox"
+          with open(path, "w", encoding="utf-8") as handle:
+              json.dump(settings, handle)
+          PY
 
       - name: Create review contract
         env:
@@ -338,22 +360,51 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          set +e
-          prompt="$({
-            printf 'Review this pull request as a strict merge gate. Compare HEAD with base commit `%s`.\n\n' "$BASE_SHA"
+          context_file="$RUNNER_TEMP/antigravity-review-context.md"
+          {
+            printf '# Pull-request review instructions\n\n'
             cat "$RUNNER_TEMP/review-policy.md"
-            printf '\n\nUse only changed-file line numbers. Report only findings proven by the diff.\n'
-            printf 'PASS requires an empty findings array; FAIL requires at least one finding. Return only schema-compliant JSON.\n'
+            printf '\n\nReview only the patch below. Do not run commands or use network tools.\n'
+            printf 'Use only changed-file line numbers. Report only findings proven by the patch.\n'
+            printf 'PASS requires an empty findings array; FAIL requires at least one finding.\n\n'
+            printf '# Patch\n\n```diff\n'
+            git diff --no-ext-diff --find-renames "$BASE_SHA"...HEAD --
+            printf '```\n'
+          } > "$context_file"
+          prompt="$({
+            printf 'Review this pull request as a strict merge gate. Read `%s`.\n' "$context_file"
+            printf 'That file contains all review instructions and the complete patch.\n'
+            printf 'Do not run terminal commands or use network tools. Return only schema-compliant JSON.\n'
           })"
+          set +e
           agy --print "$prompt" \
             --mode plan \
             --sandbox \
+            --add-dir "$RUNNER_TEMP" \
             --output-format json \
             --json-schema "$RUNNER_TEMP/review-schema.json" \
             --print-timeout 20m \
             > "$RUNNER_TEMP/antigravity-review.json" \
             2> "$RUNNER_TEMP/antigravity-run.log"
           status=$?
+          if test "$status" = "0"; then
+            REVIEW_FILE="$RUNNER_TEMP/antigravity-review.json" python3 - <<'PY' 2>> "$RUNNER_TEMP/antigravity-run.log"
+          import json
+          import os
+          import sys
+
+          with open(os.environ["REVIEW_FILE"], encoding="utf-8") as handle:
+              result = json.load(handle)
+          if result.get("status") != "SUCCESS":
+              error = result.get("error") or "Antigravity returned an unknown error"
+              print(error, file=sys.stderr)
+              raise SystemExit(1)
+          if not result.get("response"):
+              print("Antigravity completed without a review response", file=sys.stderr)
+              raise SystemExit(1)
+          PY
+            status=$?
+          fi
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
           exit 0
 
@@ -362,7 +413,10 @@ jobs:
         env:
           REVIEW_EXIT_CODE: ${{ steps.review.outputs.exit_code }}
         run: |
-          test "$REVIEW_EXIT_CODE" = "0"
+          if test "$REVIEW_EXIT_CODE" != "0"; then
+            echo "Antigravity did not produce a review; see antigravity-run.log in the diagnostics artifact" >&2
+            exit "$REVIEW_EXIT_CODE"
+          fi
           python3 - <<'PY'
           import json
           import os
@@ -373,11 +427,32 @@ jobs:
           with open(source, encoding="utf-8") as handle:
               data = json.load(handle)
           # JSON output wraps the schema-constrained model response in a CLI
-          # envelope. The response itself is normally encoded as JSON text.
+          # envelope. The response can be an object or JSON text with optional
+          # Markdown fencing or explanatory text despite the requested schema.
           if isinstance(data, dict) and "response" in data:
               response = data["response"]
               if isinstance(response, str):
-                  data = json.loads(response)
+                  response = response.strip()
+                  if not response:
+                      raise ValueError("review response is empty")
+                  try:
+                      data = json.loads(response)
+                  except json.JSONDecodeError:
+                      decoder = json.JSONDecoder()
+                      candidates = []
+                      for index, character in enumerate(response):
+                          if character != "{":
+                              continue
+                          try:
+                              candidate, _ = decoder.raw_decode(response, index)
+                          except json.JSONDecodeError:
+                              continue
+                          if (isinstance(candidate, dict)
+                                  and set(candidate) == {"verdict", "summary", "findings"}):
+                              candidates.append(candidate)
+                      if len(candidates) != 1:
+                          raise ValueError("review response must contain exactly one review object")
+                      data = candidates[0]
               elif isinstance(response, dict):
                   data = response
               else:
@@ -464,4 +539,9 @@ jobs:
         run: |
           if test -f "$RUNNER_TEMP/antigravity-token-installed"; then
             rm -f "$HOME/.gemini/antigravity-cli/antigravity-oauth-token"
+          fi
+          if test -f "$RUNNER_TEMP/antigravity-settings-backed-up"; then
+            cp "$RUNNER_TEMP/antigravity-settings.json" "$HOME/.gemini/antigravity-cli/settings.json"
+          elif test -f "$RUNNER_TEMP/antigravity-settings-created"; then
+            rm -f "$HOME/.gemini/antigravity-cli/settings.json"
           fi
