@@ -65,9 +65,9 @@ changes are committed for review, never merged. Keep branch protection and norma
 CI enabled, review generated diffs, and rotate `CODEX_AUTH_JSON` if any log,
 artifact, or commit appears to contain credentials.
 
-Pull requests from forks are reviewed only when the caller's secret policy allows
-the job to run. Automated repair skips fork branches because the repository token
-cannot safely push to them.
+Credentialed AI review jobs skip Dependabot and fork-originated pull requests because
+GitHub does not pass Actions secrets to those `pull_request` runs. Automated repair
+also skips fork branches because the repository token cannot safely push to them.
 
 ## Versioning
 
