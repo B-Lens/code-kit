@@ -372,6 +372,18 @@ jobs:
           target = os.path.join(os.environ["RUNNER_TEMP"], "pr-review.md")
           with open(source, encoding="utf-8") as handle:
               data = json.load(handle)
+          # JSON output wraps the schema-constrained model response in a CLI
+          # envelope. The response itself is normally encoded as JSON text.
+          if isinstance(data, dict) and "response" in data:
+              response = data["response"]
+              if isinstance(response, str):
+                  data = json.loads(response)
+              elif isinstance(response, dict):
+                  data = response
+              else:
+                  raise ValueError("review response must be JSON text or an object")
+          if not isinstance(data, dict):
+              raise ValueError("review must be an object")
           if set(data) != {"verdict", "summary", "findings"}:
               raise ValueError("review has unexpected or missing keys")
           if data["verdict"] not in {"PASS", "FAIL"}:
