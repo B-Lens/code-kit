@@ -388,7 +388,7 @@ jobs:
             2> "$RUNNER_TEMP/antigravity-run.log"
           status=$?
           if test "$status" = "0"; then
-            REVIEW_FILE="$RUNNER_TEMP/antigravity-review.json" python3 - <<'PY'
+            REVIEW_FILE="$RUNNER_TEMP/antigravity-review.json" python3 - <<'PY' 2>> "$RUNNER_TEMP/antigravity-run.log"
           import json
           import os
           import sys
@@ -413,7 +413,10 @@ jobs:
         env:
           REVIEW_EXIT_CODE: ${{ steps.review.outputs.exit_code }}
         run: |
-          test "$REVIEW_EXIT_CODE" = "0"
+          if test "$REVIEW_EXIT_CODE" != "0"; then
+            echo "Antigravity did not produce a review; see antigravity-run.log in the diagnostics artifact" >&2
+            exit "$REVIEW_EXIT_CODE"
+          fi
           python3 - <<'PY'
           import json
           import os
