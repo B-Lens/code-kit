@@ -285,8 +285,15 @@ jobs:
         run: |
           token_dir="$HOME/.gemini/antigravity-cli"
           token_file="$token_dir/antigravity-oauth-token"
+          settings_file="$token_dir/settings.json"
+          mkdir -p "$token_dir"
+          if test -f "$settings_file"; then
+            cp "$settings_file" "$RUNNER_TEMP/antigravity-settings.json"
+            touch "$RUNNER_TEMP/antigravity-settings-backed-up"
+          else
+            touch "$RUNNER_TEMP/antigravity-settings-created"
+          fi
           if test -n "$ANTIGRAVITY_OAUTH_TOKEN"; then
-            mkdir -p "$token_dir"
             umask 077
             printf '%s' "$ANTIGRAVITY_OAUTH_TOKEN" > "$token_file"
             touch "$RUNNER_TEMP/antigravity-token-installed"
@@ -294,6 +301,21 @@ jobs:
             echo "ANTIGRAVITY_OAUTH_TOKEN is unset and $token_file does not exist" >&2
             exit 1
           fi
+          SETTINGS_FILE="$settings_file" python3 - <<'PY'
+          import json
+          import os
+
+          path = os.environ["SETTINGS_FILE"]
+          try:
+              with open(path, encoding="utf-8") as handle:
+                  settings = json.load(handle)
+          except FileNotFoundError:
+              settings = {}
+          settings["enableTerminalSandbox"] = True
+          settings["toolPermission"] = "proceed-in-sandbox"
+          with open(path, "w", encoding="utf-8") as handle:
+              json.dump(settings, handle)
+          PY
 
       - name: Create review contract
         env:
@@ -485,4 +507,9 @@ jobs:
         run: |
           if test -f "$RUNNER_TEMP/antigravity-token-installed"; then
             rm -f "$HOME/.gemini/antigravity-cli/antigravity-oauth-token"
+          fi
+          if test -f "$RUNNER_TEMP/antigravity-settings-backed-up"; then
+            cp "$RUNNER_TEMP/antigravity-settings.json" "$HOME/.gemini/antigravity-cli/settings.json"
+          elif test -f "$RUNNER_TEMP/antigravity-settings-created"; then
+            rm -f "$HOME/.gemini/antigravity-cli/settings.json"
           fi
