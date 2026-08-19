@@ -10,10 +10,16 @@ repository-neutral.
 | --- | --- | --- |
 | `pr-code-review.yml` | Reviews a pull request, posts one updated review comment, and fails on blocking findings | `contents: read`, `pull-requests: write` |
 | `codex-automation.yml` | Implements labeled issues and applies requested review changes to same-repository pull-request branches | `contents: write`, `issues: read`, `pull-requests: write` |
+| `merger.yml` | Enables squash auto-merge after approval by a reviewer with write access | `contents: write`, `pull-requests: write` |
 
 The review workflow always runs separate Codex and Google Antigravity jobs. Both
 CLIs are version-pinned, run in read-only modes, keep GitHub credentials out of
 the AI processes, and delete AI authentication after use.
+
+The merger workflow is repository-local. It does not check out or execute pull-request
+code. It ignores approvals from reviewers who lack write, maintain, or admin access,
+then enables GitHub's native squash auto-merge so branch protection and required
+checks still control when the pull request is merged.
 
 ## Setup
 

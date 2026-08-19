@@ -1,0 +1,52 @@
+name: PR Merger
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    name: Enable squash auto-merge
+    if: >-
+      github.event.review.state == 'approved' &&
+      github.event.pull_request.state == 'open'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: pr-automerge-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Verify reviewer and enable auto-merge
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pullRequest = context.payload.pull_request;
+            const reviewer = context.payload.review.user.login;
+            const access = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: reviewer,
+            });
+            const trusted = new Set(["admin", "maintain", "write"]);
+            if (!trusted.has(access.data.permission)) {
+              core.notice(`Ignoring approval from ${reviewer}: repository permission is ${access.data.permission}.`);
+              return;
+            }
+
+            await github.graphql(
+              `mutation EnableAutoMerge($pullRequestId: ID!) {
+                enablePullRequestAutoMerge(input: {
+                  pullRequestId: $pullRequestId,
+                  mergeMethod: SQUASH
+                }) {
+                  pullRequest { number autoMergeRequest { enabledAt } }
+                }
+              }`,
+              { pullRequestId: pullRequest.node_id },
+            );
+            core.notice(`Enabled squash auto-merge for pull request #${pullRequest.number}.`);
