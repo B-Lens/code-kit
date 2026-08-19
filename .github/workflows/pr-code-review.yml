@@ -163,8 +163,8 @@ jobs:
           target = os.path.join(os.environ["RUNNER_TEMP"], "pr-review.md")
           with open(source, encoding="utf-8") as handle:
               data = json.load(handle)
-          if set(data) != {"verdict", "summary", "findings"}:
-              raise ValueError("review has unexpected or missing keys")
+          if not {"verdict", "summary", "findings"}.issubset(data):
+              raise ValueError("review has missing keys")
           if data["verdict"] not in {"PASS", "FAIL"}:
               raise ValueError("invalid verdict")
           if not isinstance(data["summary"], str) or not data["summary"].strip():
@@ -177,8 +177,8 @@ jobs:
           lines = [f"## {name} pull-request review", "", ("✅" if data["verdict"] == "PASS" else "❌") + f" **Verdict: {data['verdict']}**", "", data["summary"].strip()]
           required = {"priority", "path", "line", "title", "body"}
           for item in data["findings"]:
-              if not isinstance(item, dict) or set(item) != required:
-                  raise ValueError("finding has invalid keys")
+              if not isinstance(item, dict) or not required.issubset(item):
+                  raise ValueError("finding has missing keys")
               path = PurePosixPath(str(item["path"]))
               if path.is_absolute() or ".." in path.parts or item["priority"] not in {"P0", "P1", "P2"}:
                   raise ValueError("finding has unsafe path or priority")
@@ -372,8 +372,8 @@ jobs:
           target = os.path.join(os.environ["RUNNER_TEMP"], "pr-review.md")
           with open(source, encoding="utf-8") as handle:
               data = json.load(handle)
-          if set(data) != {"verdict", "summary", "findings"}:
-              raise ValueError("review has unexpected or missing keys")
+          if not {"verdict", "summary", "findings"}.issubset(data):
+              raise ValueError("review has missing keys")
           if data["verdict"] not in {"PASS", "FAIL"}:
               raise ValueError("invalid verdict")
           if not isinstance(data["summary"], str) or not data["summary"].strip():
@@ -385,8 +385,8 @@ jobs:
           lines = ["## Antigravity pull-request review", "", ("✅" if data["verdict"] == "PASS" else "❌") + f" **Verdict: {data['verdict']}**", "", data["summary"].strip()]
           required = {"priority", "path", "line", "title", "body"}
           for item in data["findings"]:
-              if not isinstance(item, dict) or set(item) != required:
-                  raise ValueError("finding has invalid keys")
+              if not isinstance(item, dict) or not required.issubset(item):
+                  raise ValueError("finding has missing keys")
               path = PurePosixPath(str(item["path"]))
               if path.is_absolute() or ".." in path.parts or item["priority"] not in {"P0", "P1", "P2"}:
                   raise ValueError("finding has unsafe path or priority")
