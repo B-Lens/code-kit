@@ -24,6 +24,11 @@ on:
         required: false
         type: string
         default: ubuntu-24.04
+      review_utilities_ref:
+        description: code-kit ref containing the review utility script; keep aligned with the workflow ref
+        required: false
+        type: string
+        default: v1
     secrets:
       CODEX_AUTH_JSON:
         description: Complete Codex CLI auth.json content
@@ -56,6 +61,15 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Checkout review utilities
+        uses: actions/checkout@v4
+        with:
+          repository: ipankaj18/code-kit
+          ref: ${{ github.repository == 'ipankaj18/code-kit' && github.sha || inputs.review_utilities_ref }}
+          path: .code-kit-review
+          persist-credentials: false
+          sparse-checkout: scripts
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -91,38 +105,8 @@ jobs:
           REVIEW_PROMPT: ${{ inputs.review_prompt }}
         run: |
           printf '%s\n' "$REVIEW_PROMPT" > "$RUNNER_TEMP/review-policy.md"
-          python3 - <<'PY'
-          import json
-          import os
-
-          schema = {
-              "type": "object",
-              "additionalProperties": False,
-              "required": ["verdict", "summary", "findings"],
-              "properties": {
-                  "verdict": {"type": "string", "enum": ["PASS", "FAIL"]},
-                  "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
-                  "findings": {
-                      "type": "array",
-                      "maxItems": 25,
-                      "items": {
-                          "type": "object",
-                          "additionalProperties": False,
-                          "required": ["priority", "path", "line", "title", "body"],
-                          "properties": {
-                              "priority": {"type": "string", "enum": ["P0", "P1", "P2"]},
-                              "path": {"type": "string", "minLength": 1, "maxLength": 500},
-                              "line": {"type": "integer", "minimum": 1},
-                              "title": {"type": "string", "minLength": 1, "maxLength": 300},
-                              "body": {"type": "string", "minLength": 1, "maxLength": 4000},
-                          },
-                      },
-                  },
-              },
-          }
-          with open(os.path.join(os.environ["RUNNER_TEMP"], "review-schema.json"), "w", encoding="utf-8") as handle:
-              json.dump(schema, handle)
-          PY
+          python3 .code-kit-review/scripts/pr_code_review.py create-schema \
+            --output "$RUNNER_TEMP/review-schema.json"
 
       - name: Run strict Codex review
         id: review
@@ -153,44 +137,11 @@ jobs:
           REVIEW_EXIT_CODE: ${{ steps.review.outputs.exit_code }}
         run: |
           test "$REVIEW_EXIT_CODE" = "0"
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import PurePosixPath
-
-          engine = os.environ["REVIEW_ENGINE"]
-          source = os.path.join(os.environ["RUNNER_TEMP"], f"{engine}-review.json")
-          target = os.path.join(os.environ["RUNNER_TEMP"], "pr-review.md")
-          with open(source, encoding="utf-8") as handle:
-              data = json.load(handle)
-          if not {"verdict", "summary", "findings"}.issubset(data):
-              raise ValueError("review has missing keys")
-          if data["verdict"] not in {"PASS", "FAIL"}:
-              raise ValueError("invalid verdict")
-          if not isinstance(data["summary"], str) or not data["summary"].strip():
-              raise ValueError("summary must be non-empty")
-          if not isinstance(data["findings"], list):
-              raise ValueError("findings must be an array")
-          if (data["verdict"] == "PASS") != (len(data["findings"]) == 0):
-              raise ValueError("verdict and findings disagree")
-          name = "Codex" if engine == "codex" else "Antigravity"
-          lines = [f"## {name} pull-request review", "", ("✅" if data["verdict"] == "PASS" else "❌") + f" **Verdict: {data['verdict']}**", "", data["summary"].strip()]
-          required = {"priority", "path", "line", "title", "body"}
-          for item in data["findings"]:
-              if not isinstance(item, dict) or not required.issubset(item):
-                  raise ValueError("finding has missing keys")
-              path = PurePosixPath(str(item["path"]))
-              if path.is_absolute() or ".." in path.parts or item["priority"] not in {"P0", "P1", "P2"}:
-                  raise ValueError("finding has unsafe path or priority")
-              if not isinstance(item["line"], int) or item["line"] < 1:
-                  raise ValueError("finding has invalid line")
-              lines += ["", f"### [{item['priority']}] {item['title'].strip()}", "", f"`{item['path']}:{item['line']}`", "", item["body"].strip()]
-          lines += ["", f"_Generated by {name} in an ephemeral read-only GitHub Actions job._", ""]
-          with open(target, "w", encoding="utf-8") as handle:
-              handle.write("\n".join(lines))
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-              handle.write(f"verdict={data['verdict']}\n")
-          PY
+          python3 .code-kit-review/scripts/pr_code_review.py render \
+            --engine "$REVIEW_ENGINE" \
+            --input "$RUNNER_TEMP/$REVIEW_ENGINE-review.json" \
+            --output "$RUNNER_TEMP/pr-review.md" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Post review comment
         uses: actions/github-script@v7
@@ -262,6 +213,15 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Checkout review utilities
+        uses: actions/checkout@v4
+        with:
+          repository: ipankaj18/code-kit
+          ref: ${{ github.repository == 'ipankaj18/code-kit' && github.sha || inputs.review_utilities_ref }}
+          path: .code-kit-review
+          persist-credentials: false
+          sparse-checkout: scripts
+
       - name: Install pinned Antigravity CLI
         env:
           ANTIGRAVITY_VERSION: ${{ inputs.antigravity_version || '1.1.13' }}
@@ -301,59 +261,16 @@ jobs:
             echo "ANTIGRAVITY_OAUTH_TOKEN is unset and $token_file does not exist" >&2
             exit 1
           fi
-          SETTINGS_FILE="$settings_file" python3 - <<'PY'
-          import json
-          import os
-
-          path = os.environ["SETTINGS_FILE"]
-          try:
-              with open(path, encoding="utf-8") as handle:
-                  settings = json.load(handle)
-          except FileNotFoundError:
-              settings = {}
-          settings["enableTerminalSandbox"] = True
-          settings["toolPermission"] = "proceed-in-sandbox"
-          with open(path, "w", encoding="utf-8") as handle:
-              json.dump(settings, handle)
-          PY
+          python3 .code-kit-review/scripts/pr_code_review.py configure-antigravity \
+            --settings-file "$settings_file"
 
       - name: Create review contract
         env:
           REVIEW_PROMPT: ${{ inputs.review_prompt }}
         run: |
           printf '%s\n' "$REVIEW_PROMPT" > "$RUNNER_TEMP/review-policy.md"
-          python3 - <<'PY'
-          import json
-          import os
-
-          schema = {
-              "type": "object",
-              "additionalProperties": False,
-              "required": ["verdict", "summary", "findings"],
-              "properties": {
-                  "verdict": {"type": "string", "enum": ["PASS", "FAIL"]},
-                  "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
-                  "findings": {
-                      "type": "array",
-                      "maxItems": 25,
-                      "items": {
-                          "type": "object",
-                          "additionalProperties": False,
-                          "required": ["priority", "path", "line", "title", "body"],
-                          "properties": {
-                              "priority": {"type": "string", "enum": ["P0", "P1", "P2"]},
-                              "path": {"type": "string", "minLength": 1, "maxLength": 500},
-                              "line": {"type": "integer", "minimum": 1},
-                              "title": {"type": "string", "minLength": 1, "maxLength": 300},
-                              "body": {"type": "string", "minLength": 1, "maxLength": 4000},
-                          },
-                      },
-                  },
-              },
-          }
-          with open(os.path.join(os.environ["RUNNER_TEMP"], "review-schema.json"), "w", encoding="utf-8") as handle:
-              json.dump(schema, handle)
-          PY
+          python3 .code-kit-review/scripts/pr_code_review.py create-schema \
+            --output "$RUNNER_TEMP/review-schema.json"
 
       - name: Run strict Antigravity review
         id: review
@@ -388,21 +305,9 @@ jobs:
             2> "$RUNNER_TEMP/antigravity-run.log"
           status=$?
           if test "$status" = "0"; then
-            REVIEW_FILE="$RUNNER_TEMP/antigravity-review.json" python3 - <<'PY' 2>> "$RUNNER_TEMP/antigravity-run.log"
-          import json
-          import os
-          import sys
-
-          with open(os.environ["REVIEW_FILE"], encoding="utf-8") as handle:
-              result = json.load(handle)
-          if result.get("status") != "SUCCESS":
-              error = result.get("error") or "Antigravity returned an unknown error"
-              print(error, file=sys.stderr)
-              raise SystemExit(1)
-          if not result.get("response"):
-              print("Antigravity completed without a review response", file=sys.stderr)
-              raise SystemExit(1)
-          PY
+            python3 .code-kit-review/scripts/pr_code_review.py validate-antigravity-envelope \
+              --input "$RUNNER_TEMP/antigravity-review.json" \
+              2>> "$RUNNER_TEMP/antigravity-run.log"
             status=$?
           fi
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
@@ -417,75 +322,11 @@ jobs:
             echo "Antigravity did not produce a review; see antigravity-run.log in the diagnostics artifact" >&2
             exit "$REVIEW_EXIT_CODE"
           fi
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import PurePosixPath
-
-          source = os.path.join(os.environ["RUNNER_TEMP"], "antigravity-review.json")
-          target = os.path.join(os.environ["RUNNER_TEMP"], "pr-review.md")
-          with open(source, encoding="utf-8") as handle:
-              data = json.load(handle)
-          # JSON output wraps the schema-constrained model response in a CLI
-          # envelope. The response can be an object or JSON text with optional
-          # Markdown fencing or explanatory text despite the requested schema.
-          if isinstance(data, dict) and "response" in data:
-              response = data["response"]
-              if isinstance(response, str):
-                  response = response.strip()
-                  if not response:
-                      raise ValueError("review response is empty")
-                  try:
-                      data = json.loads(response)
-                  except json.JSONDecodeError:
-                      decoder = json.JSONDecoder()
-                      candidates = []
-                      for index, character in enumerate(response):
-                          if character != "{":
-                              continue
-                          try:
-                              candidate, _ = decoder.raw_decode(response, index)
-                          except json.JSONDecodeError:
-                              continue
-                          if (isinstance(candidate, dict)
-                                  and {"verdict", "summary", "findings"}.issubset(candidate)):
-                              candidates.append(candidate)
-                      if len(candidates) != 1:
-                          raise ValueError("review response must contain exactly one review object")
-                      data = candidates[0]
-              elif isinstance(response, dict):
-                  data = response
-              else:
-                  raise ValueError("review response must be JSON text or an object")
-          if not isinstance(data, dict):
-              raise ValueError("review must be an object")
-          if not {"verdict", "summary", "findings"}.issubset(data):
-              raise ValueError("review has missing keys")
-          if data["verdict"] not in {"PASS", "FAIL"}:
-              raise ValueError("invalid verdict")
-          if not isinstance(data["summary"], str) or not data["summary"].strip():
-              raise ValueError("summary must be non-empty")
-          if not isinstance(data["findings"], list):
-              raise ValueError("findings must be an array")
-          if (data["verdict"] == "PASS") != (len(data["findings"]) == 0):
-              raise ValueError("verdict and findings disagree")
-          lines = ["## Antigravity pull-request review", "", ("✅" if data["verdict"] == "PASS" else "❌") + f" **Verdict: {data['verdict']}**", "", data["summary"].strip()]
-          required = {"priority", "path", "line", "title", "body"}
-          for item in data["findings"]:
-              if not isinstance(item, dict) or not required.issubset(item):
-                  raise ValueError("finding has missing keys")
-              path = PurePosixPath(str(item["path"]))
-              if path.is_absolute() or ".." in path.parts or item["priority"] not in {"P0", "P1", "P2"}:
-                  raise ValueError("finding has unsafe path or priority")
-              if not isinstance(item["line"], int) or item["line"] < 1:
-                  raise ValueError("finding has invalid line")
-              lines += ["", f"### [{item['priority']}] {item['title'].strip()}", "", f"`{item['path']}:{item['line']}`", "", item["body"].strip()]
-          lines += ["", "_Generated by Antigravity in an ephemeral read-only GitHub Actions job._", ""]
-          with open(target, "w", encoding="utf-8") as handle:
-              handle.write("\n".join(lines))
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-              handle.write(f"verdict={data['verdict']}\n")
-          PY
+          python3 .code-kit-review/scripts/pr_code_review.py render \
+            --engine antigravity \
+            --input "$RUNNER_TEMP/antigravity-review.json" \
+            --output "$RUNNER_TEMP/pr-review.md" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Post review comment
         uses: actions/github-script@v7
