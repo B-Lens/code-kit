@@ -12,6 +12,7 @@ from typing import Any
 
 LOGGER = logging.getLogger("pr-code-review")
 REQUIRED_REVIEW_KEYS = {"verdict", "summary", "findings"}
+MAX_DIAGNOSTIC_LINES = 80
 
 
 def create_schema(output: Path) -> None:
@@ -80,6 +81,44 @@ def validate_antigravity_envelope(input_file: Path) -> None:
     if not result.get("response"):
         raise ValueError("Antigravity completed without a review response")
     LOGGER.info("Antigravity CLI response envelope is valid")
+
+
+def report_failure(engine: str, exit_code: int, log_file: Path) -> None:
+    LOGGER.error("%s review command failed with exit code %d", engine, exit_code)
+    try:
+        log_text = log_file.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        LOGGER.error("Diagnostic log does not exist: %s", log_file)
+        return
+
+    normalized_log = log_text.lower()
+    if engine == "codex" and (
+        "refresh_token_reused" in normalized_log
+        or "provided authentication token is expired" in normalized_log
+    ):
+        LOGGER.error(
+            "Codex authentication expired and could not be refreshed. Sign in to Codex "
+            "again and replace the CODEX_AUTH_JSON repository secret."
+        )
+    elif "401 unauthorized" in normalized_log:
+        LOGGER.error(
+            "%s authentication was rejected. Refresh the corresponding repository secret.",
+            engine,
+        )
+
+    lines = log_text.splitlines()
+    if not lines:
+        LOGGER.error("Diagnostic log is empty: %s", log_file)
+        return
+    visible_lines = lines[-MAX_DIAGNOSTIC_LINES:]
+    LOGGER.error(
+        "Last %d diagnostic lines from %s%s:",
+        len(visible_lines),
+        log_file,
+        " (truncated)" if len(lines) > len(visible_lines) else "",
+    )
+    for line in visible_lines:
+        LOGGER.error("engine-log | %s", line)
 
 
 def unwrap_review(data: Any, engine: str) -> Any:
@@ -187,6 +226,11 @@ def parse_args() -> argparse.Namespace:
     envelope_parser = subparsers.add_parser("validate-antigravity-envelope")
     envelope_parser.add_argument("--input", type=Path, required=True)
 
+    failure_parser = subparsers.add_parser("report-failure")
+    failure_parser.add_argument("--engine", choices=("codex", "antigravity"), required=True)
+    failure_parser.add_argument("--exit-code", type=int, required=True)
+    failure_parser.add_argument("--log-file", type=Path, required=True)
+
     render_parser = subparsers.add_parser("render")
     render_parser.add_argument("--engine", choices=("codex", "antigravity"), required=True)
     render_parser.add_argument("--input", type=Path, required=True)
@@ -208,6 +252,8 @@ def main() -> int:
             configure_antigravity(args.settings_file)
         elif args.command == "validate-antigravity-envelope":
             validate_antigravity_envelope(args.input)
+        elif args.command == "report-failure":
+            report_failure(args.engine, args.exit_code, args.log_file)
         elif args.command == "render":
             render_review(args.engine, args.input, args.output, args.github_output)
     except Exception:

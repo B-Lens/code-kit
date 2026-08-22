@@ -136,7 +136,13 @@ jobs:
           REVIEW_ENGINE: codex
           REVIEW_EXIT_CODE: ${{ steps.review.outputs.exit_code }}
         run: |
-          test "$REVIEW_EXIT_CODE" = "0"
+          if test "$REVIEW_EXIT_CODE" != "0"; then
+            python3 .code-kit-review/scripts/pr_code_review.py report-failure \
+              --engine "$REVIEW_ENGINE" \
+              --exit-code "$REVIEW_EXIT_CODE" \
+              --log-file "$RUNNER_TEMP/codex-run.log" || true
+            exit "$REVIEW_EXIT_CODE"
+          fi
           python3 .code-kit-review/scripts/pr_code_review.py render \
             --engine "$REVIEW_ENGINE" \
             --input "$RUNNER_TEMP/$REVIEW_ENGINE-review.json" \
@@ -319,7 +325,10 @@ jobs:
           REVIEW_EXIT_CODE: ${{ steps.review.outputs.exit_code }}
         run: |
           if test "$REVIEW_EXIT_CODE" != "0"; then
-            echo "Antigravity did not produce a review; see antigravity-run.log in the diagnostics artifact" >&2
+            python3 .code-kit-review/scripts/pr_code_review.py report-failure \
+              --engine antigravity \
+              --exit-code "$REVIEW_EXIT_CODE" \
+              --log-file "$RUNNER_TEMP/antigravity-run.log" || true
             exit "$REVIEW_EXIT_CODE"
           fi
           python3 .code-kit-review/scripts/pr_code_review.py render \
