@@ -15,7 +15,7 @@ REQUIRED_REVIEW_KEYS = {"verdict", "summary", "findings"}
 
 
 def create_schema(output: Path) -> None:
-    LOGGER.info("Creating review schema at %s", output)
+    LOGGER.info("Using built-in review schema")
     schema = {
         "type": "object",
         "additionalProperties": False,
@@ -44,6 +44,7 @@ def create_schema(output: Path) -> None:
             },
         },
     }
+    LOGGER.info("Writing review schema to %s", output)
     output.write_text(json.dumps(schema), encoding="utf-8")
     LOGGER.info("Review schema created successfully")
 

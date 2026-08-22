@@ -13,6 +13,7 @@ jobs:
   review:
     uses: ipankaj18/code-kit/.github/workflows/pr-code-review.yml@v1
     with:
+      review_utilities_ref: v1
       review_prompt: |
         Review for concrete correctness, security, and data-integrity defects.
         Ignore style and pre-existing issues outside the pull-request diff.
