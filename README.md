@@ -33,7 +33,7 @@ checks still control when the pull request is merged.
    `Codex-Automation` and require approval from a trusted reviewer.
 3. Copy the desired caller files from [`examples/`](examples/) into the consuming
    repository's `.github/workflows/` directory.
-4. Adjust inputs such as `review_prompt`, `extra_instructions`, `base_branch`, and
+4. Adjust inputs such as `review_prompt_path`, `extra_instructions`, `base_branch`, and
    `reviewer` for the repository.
 5. Create the `ai-autonomous` and `codex` labels if issue automation is enabled.
 
@@ -42,18 +42,22 @@ stable major release line.
 
 ## Custom review policy
 
-The default review prompt is language- and project-neutral. A caller can supply
-domain-specific safety rules:
+The review workflow first looks for `.github/codex/review-prompt.md` in the pull
+request's base commit. Loading from the base commit prevents a pull request from
+weakening the policy that reviews its own changes. Repositories can select a
+different repository-relative path with `review_prompt_path`. If the file does
+not exist, the language- and project-neutral `review_prompt` input is used as a
+backward-compatible fallback:
 
 ```yaml
 jobs:
   review:
     uses: ipankaj18/code-kit/.github/workflows/pr-code-review.yml@v1
     with:
+      review_prompt_path: .github/codex/review-prompt.md
       review_prompt: |
-        Review this change as a strict production-safety gate.
-        Focus on concrete correctness, security, and data-integrity defects.
-        Ignore style and pre-existing issues outside the diff.
+        Review for concrete correctness, security, and data-integrity defects.
+        Ignore style and pre-existing issues outside the pull-request diff.
     secrets:
       CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
       ANTIGRAVITY_OAUTH_TOKEN: ${{ secrets.ANTIGRAVITY_OAUTH_TOKEN }}
