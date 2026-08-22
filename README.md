@@ -42,7 +42,7 @@ stable major release line.
 
 ## Custom review policy
 
-The review workflow first looks for `.github/codex/review-prompt.md` in the pull
+The review workflow first looks for `.github/codex/prompt-review.md` in the pull
 request's base commit. Loading from the base commit prevents a pull request from
 weakening the policy that reviews its own changes. Repositories can select a
 different repository-relative path with `review_prompt_path`. If the file does
@@ -54,7 +54,7 @@ jobs:
   review:
     uses: ipankaj18/code-kit/.github/workflows/pr-code-review.yml@v1
     with:
-      review_prompt_path: .github/codex/review-prompt.md
+      review_prompt_path: .github/codex/prompt-review.md
       review_prompt: |
         Review for concrete correctness, security, and data-integrity defects.
         Ignore style and pre-existing issues outside the pull-request diff.
