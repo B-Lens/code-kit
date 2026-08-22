@@ -50,8 +50,6 @@ jobs:
   review:
     uses: ipankaj18/code-kit/.github/workflows/pr-code-review.yml@v1
     with:
-      # Keep this aligned with the ref used in jobs.review.uses.
-      review_utilities_ref: v1
       review_prompt: |
         Review this change as a strict production-safety gate.
         Focus on concrete correctness, security, and data-integrity defects.
