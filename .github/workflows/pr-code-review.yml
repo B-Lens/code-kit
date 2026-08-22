@@ -104,19 +104,21 @@ jobs:
       - name: Create review contract
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          REVIEW_PROMPT: ${{ inputs.review_prompt }}
-          REVIEW_PROMPT_PATH: ${{ inputs.review_prompt_path }}
+          REVIEW_PROMPT: ${{ inputs.review_prompt || 'Review for concrete correctness, security, and data-integrity defects. Ignore style and pre-existing issues outside the diff.' }}
+          REVIEW_PROMPT_PATH: ${{ inputs.review_prompt_path || '.github/codex/prompt-review.md' }}
         run: |
-          case "/$REVIEW_PROMPT_PATH/" in
-            *"/../"*|//* )
+          case "$REVIEW_PROMPT_PATH" in
+            /*|..|../*|*/..|*/../*)
               echo "review_prompt_path must be repository-relative and cannot contain .." >&2
               exit 1
               ;;
           esac
           if test -n "$REVIEW_PROMPT_PATH" && \
              git cat-file -e "$BASE_SHA:$REVIEW_PROMPT_PATH" 2>/dev/null; then
+            echo "Loading review policy from $REVIEW_PROMPT_PATH at base commit $BASE_SHA"
             git show "$BASE_SHA:$REVIEW_PROMPT_PATH" > "$RUNNER_TEMP/review-policy.md"
           else
+            echo "Review policy file not found at base commit; using review_prompt fallback"
             printf '%s\n' "$REVIEW_PROMPT" > "$RUNNER_TEMP/review-policy.md"
           fi
           python3 .code-kit-review/scripts/pr_code_review.py create-schema \
@@ -288,19 +290,21 @@ jobs:
       - name: Create review contract
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          REVIEW_PROMPT: ${{ inputs.review_prompt }}
-          REVIEW_PROMPT_PATH: ${{ inputs.review_prompt_path }}
+          REVIEW_PROMPT: ${{ inputs.review_prompt || 'Review for concrete correctness, security, and data-integrity defects. Ignore style and pre-existing issues outside the diff.' }}
+          REVIEW_PROMPT_PATH: ${{ inputs.review_prompt_path || '.github/codex/prompt-review.md' }}
         run: |
-          case "/$REVIEW_PROMPT_PATH/" in
-            *"/../"*|//* )
+          case "$REVIEW_PROMPT_PATH" in
+            /*|..|../*|*/..|*/../*)
               echo "review_prompt_path must be repository-relative and cannot contain .." >&2
               exit 1
               ;;
           esac
           if test -n "$REVIEW_PROMPT_PATH" && \
              git cat-file -e "$BASE_SHA:$REVIEW_PROMPT_PATH" 2>/dev/null; then
+            echo "Loading review policy from $REVIEW_PROMPT_PATH at base commit $BASE_SHA"
             git show "$BASE_SHA:$REVIEW_PROMPT_PATH" > "$RUNNER_TEMP/review-policy.md"
           else
+            echo "Review policy file not found at base commit; using review_prompt fallback"
             printf '%s\n' "$REVIEW_PROMPT" > "$RUNNER_TEMP/review-policy.md"
           fi
           python3 .code-kit-review/scripts/pr_code_review.py create-schema \
