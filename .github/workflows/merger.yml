@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   automerge:
-    name: Enable squash auto-merge
+    name: Squash approved pull request
     if: >-
       github.event.review.state == 'approved' &&
       github.event.pull_request.state == 'open'
@@ -21,7 +21,7 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - name: Verify reviewer and enable auto-merge
+      - name: Verify reviewer and merge
         uses: actions/github-script@v7
         with:
           script: |
@@ -38,15 +38,36 @@ jobs:
               return;
             }
 
-            await github.graphql(
-              `mutation EnableAutoMerge($pullRequestId: ID!) {
-                enablePullRequestAutoMerge(input: {
-                  pullRequestId: $pullRequestId,
-                  mergeMethod: SQUASH
-                }) {
-                  pullRequest { number autoMergeRequest { enabledAt } }
-                }
-              }`,
-              { pullRequestId: pullRequest.node_id },
-            );
-            core.notice(`Enabled squash auto-merge for pull request #${pullRequest.number}.`);
+            const repository = await github.rest.repos.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+
+            if (repository.data.allow_auto_merge) {
+              await github.graphql(
+                `mutation EnableAutoMerge($pullRequestId: ID!) {
+                  enablePullRequestAutoMerge(input: {
+                    pullRequestId: $pullRequestId,
+                    mergeMethod: SQUASH
+                  }) {
+                    pullRequest { number autoMergeRequest { enabledAt } }
+                  }
+                }`,
+                { pullRequestId: pullRequest.node_id },
+              );
+              core.notice(`Enabled squash auto-merge for pull request #${pullRequest.number}.`);
+              return;
+            }
+
+            const result = await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pullRequest.number,
+              merge_method: "squash",
+              sha: pullRequest.head.sha,
+            });
+            if (!result.data.merged) {
+              core.setFailed(result.data.message || `Pull request #${pullRequest.number} was not merged.`);
+              return;
+            }
+            core.notice(`Squash-merged pull request #${pullRequest.number}; repository auto-merge is disabled.`);
