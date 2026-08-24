@@ -50,7 +50,7 @@ def create_schema(output: Path) -> None:
     LOGGER.info("Review schema created successfully")
 
 
-def configure_antigravity(settings_file: Path) -> None:
+def configure_antigravity(settings_file: Path, allow_read_dir: Path | None = None) -> None:
     LOGGER.info("Configuring Antigravity settings at %s", settings_file)
     try:
         settings = json.loads(settings_file.read_text(encoding="utf-8"))
@@ -61,6 +61,16 @@ def configure_antigravity(settings_file: Path) -> None:
         raise ValueError("Antigravity settings must be a JSON object")
     settings["enableTerminalSandbox"] = True
     settings["toolPermission"] = "proceed-in-sandbox"
+    if allow_read_dir is not None:
+        permissions = settings.setdefault("permissions", {})
+        if not isinstance(permissions, dict):
+            raise ValueError("Antigravity permissions settings must be a JSON object")
+        allow = permissions.setdefault("allow", [])
+        if not isinstance(allow, list) or not all(isinstance(rule, str) for rule in allow):
+            raise ValueError("Antigravity permissions.allow must be a list of strings")
+        read_rule = f"read_file({allow_read_dir.resolve()}/**)"
+        if read_rule not in allow:
+            allow.append(read_rule)
     settings_file.write_text(json.dumps(settings), encoding="utf-8")
     LOGGER.info("Antigravity sandbox settings configured successfully")
 
@@ -76,10 +86,17 @@ def validate_antigravity_envelope(input_file: Path) -> None:
     result = load_json(input_file)
     if not isinstance(result, dict):
         raise ValueError("Antigravity result must be a JSON object")
-    if result.get("status") != "SUCCESS":
+    has_review = isinstance(result.get("structured_output"), dict) or bool(
+        result.get("response")
+    )
+    if not has_review:
         raise ValueError(result.get("error") or "Antigravity returned an unknown error")
-    if not result.get("response"):
-        raise ValueError("Antigravity completed without a review response")
+    if result.get("status") != "SUCCESS":
+        LOGGER.warning(
+            "Antigravity returned %s after producing review output: %s",
+            result.get("status"),
+            result.get("error") or "unknown error",
+        )
     LOGGER.info("Antigravity CLI response envelope is valid")
 
 
@@ -122,9 +139,13 @@ def report_failure(engine: str, exit_code: int, log_file: Path) -> None:
 
 
 def unwrap_review(data: Any, engine: str) -> Any:
-    if engine != "antigravity" or not isinstance(data, dict) or "response" not in data:
+    if engine != "antigravity" or not isinstance(data, dict):
         return data
     LOGGER.info("Extracting review from Antigravity CLI response envelope")
+    if isinstance(data.get("structured_output"), dict):
+        return data["structured_output"]
+    if "response" not in data:
+        return data
     response = data["response"]
     if isinstance(response, dict):
         return response
@@ -222,6 +243,7 @@ def parse_args() -> argparse.Namespace:
 
     settings_parser = subparsers.add_parser("configure-antigravity")
     settings_parser.add_argument("--settings-file", type=Path, required=True)
+    settings_parser.add_argument("--allow-read-dir", type=Path)
 
     envelope_parser = subparsers.add_parser("validate-antigravity-envelope")
     envelope_parser.add_argument("--input", type=Path, required=True)
@@ -249,7 +271,7 @@ def main() -> int:
         if args.command == "create-schema":
             create_schema(args.output)
         elif args.command == "configure-antigravity":
-            configure_antigravity(args.settings_file)
+            configure_antigravity(args.settings_file, args.allow_read_dir)
         elif args.command == "validate-antigravity-envelope":
             validate_antigravity_envelope(args.input)
         elif args.command == "report-failure":
