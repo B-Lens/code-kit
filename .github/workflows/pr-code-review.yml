@@ -240,7 +240,7 @@ jobs:
         with:
           repository: ipankaj18/code-kit
           # Keep this immutable SHA aligned with scripts/pr_code_review.py.
-          ref: 5288d1a49073d3727bc2020a7dc98ad18c25a8e4
+          ref: 8099f687f45cae9310de269fa8802d4101dc0c87
           path: .code-kit-review
           persist-credentials: false
           sparse-checkout: scripts
