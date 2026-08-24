@@ -67,7 +67,7 @@ jobs:
         with:
           repository: ipankaj18/code-kit
           # Keep this immutable SHA aligned with scripts/pr_code_review.py.
-          ref: 5288d1a49073d3727bc2020a7dc98ad18c25a8e4
+          ref: ee26e51a8a543bb2bb3cfaf37ed022fb11b2a771
           path: .code-kit-review
           persist-credentials: false
           sparse-checkout: scripts
@@ -285,7 +285,8 @@ jobs:
             exit 1
           fi
           python3 .code-kit-review/scripts/pr_code_review.py configure-antigravity \
-            --settings-file "$settings_file"
+            --settings-file "$settings_file" \
+            --allow-read-dir "$RUNNER_TEMP"
 
       - name: Create review contract
         env:
