@@ -50,7 +50,7 @@ def create_schema(output: Path) -> None:
     LOGGER.info("Review schema created successfully")
 
 
-def configure_antigravity(settings_file: Path) -> None:
+def configure_antigravity(settings_file: Path, allow_read_dir: Path | None = None) -> None:
     LOGGER.info("Configuring Antigravity settings at %s", settings_file)
     try:
         settings = json.loads(settings_file.read_text(encoding="utf-8"))
@@ -61,6 +61,16 @@ def configure_antigravity(settings_file: Path) -> None:
         raise ValueError("Antigravity settings must be a JSON object")
     settings["enableTerminalSandbox"] = True
     settings["toolPermission"] = "proceed-in-sandbox"
+    if allow_read_dir is not None:
+        permissions = settings.setdefault("permissions", {})
+        if not isinstance(permissions, dict):
+            raise ValueError("Antigravity permissions settings must be a JSON object")
+        allow = permissions.setdefault("allow", [])
+        if not isinstance(allow, list) or not all(isinstance(rule, str) for rule in allow):
+            raise ValueError("Antigravity permissions.allow must be a list of strings")
+        read_rule = f"read_file({allow_read_dir.resolve()}/**)"
+        if read_rule not in allow:
+            allow.append(read_rule)
     settings_file.write_text(json.dumps(settings), encoding="utf-8")
     LOGGER.info("Antigravity sandbox settings configured successfully")
 
@@ -222,6 +232,7 @@ def parse_args() -> argparse.Namespace:
 
     settings_parser = subparsers.add_parser("configure-antigravity")
     settings_parser.add_argument("--settings-file", type=Path, required=True)
+    settings_parser.add_argument("--allow-read-dir", type=Path)
 
     envelope_parser = subparsers.add_parser("validate-antigravity-envelope")
     envelope_parser.add_argument("--input", type=Path, required=True)
@@ -249,7 +260,7 @@ def main() -> int:
         if args.command == "create-schema":
             create_schema(args.output)
         elif args.command == "configure-antigravity":
-            configure_antigravity(args.settings_file)
+            configure_antigravity(args.settings_file, args.allow_read_dir)
         elif args.command == "validate-antigravity-envelope":
             validate_antigravity_envelope(args.input)
         elif args.command == "report-failure":
