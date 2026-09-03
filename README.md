@@ -8,7 +8,7 @@ repository-neutral.
 
 | Workflow | Purpose | GitHub permissions |
 | --- | --- | --- |
-| `pr-code-review.yml` | Reviews a pull request, posts one updated review comment, and fails on blocking findings | `contents: read`, `pull-requests: write` |
+| `pr-code-review.yml` | Reviews a pull request, posts a review comment, and fails on blocking findings | `contents: read`, `pull-requests: write` |
 | `codex-automation.yml` | Implements labeled issues and applies requested review changes to same-repository pull-request branches | `contents: write`, `issues: read`, `pull-requests: write` |
 | `merger.yml` | Enables squash auto-merge after approval by a reviewer with write access | `contents: write`, `pull-requests: write` |
 
