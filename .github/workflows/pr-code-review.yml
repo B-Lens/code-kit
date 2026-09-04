@@ -56,14 +56,14 @@ jobs:
         run: echo "CODEX_HOME=$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
 
       - name: Checkout pull request head
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Checkout review utilities
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ipankaj18/code-kit
           # Keep this immutable SHA aligned with scripts/pr_code_review.py.
@@ -212,14 +212,14 @@ jobs:
 
     steps:
       - name: Checkout pull request head
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Checkout review utilities
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ipankaj18/code-kit
           # Keep this immutable SHA aligned with scripts/pr_code_review.py.
