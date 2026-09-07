@@ -166,7 +166,7 @@ jobs:
 
       - name: Upload result
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: codex-issue-${{ github.event.issue.number }}
           path: ${{ runner.temp }}/codex-output.md
@@ -292,7 +292,7 @@ jobs:
 
       - name: Upload result
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: codex-repair-${{ github.event.pull_request.number }}
           path: ${{ runner.temp }}/codex-output.md
